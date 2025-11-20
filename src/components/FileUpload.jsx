@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { uploadAgreement } from "../utils/api";
 
-export default function FileUpload({ onUploaded }) {
+export default function FileUpload({ onUploaded, metadata }) {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -9,7 +9,7 @@ export default function FileUpload({ onUploaded }) {
     if (!file) return alert("Select a file first!");
 
     setLoading(true);
-    const res = await uploadAgreement(file);
+    const res = await uploadAgreement(file, metadata);
     setLoading(false);
 
     if (res.success) {
