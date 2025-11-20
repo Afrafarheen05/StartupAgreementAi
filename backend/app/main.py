@@ -11,6 +11,7 @@ from typing import Dict, Optional
 from datetime import datetime
 
 from app.ml.analysis_engine import AnalysisEngine
+from app.ml.chat_assistant import ChatAssistant
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -43,6 +44,7 @@ os.makedirs('./trained_models', exist_ok=True)
 # Initialize ML engine
 print("Initializing ML Analysis Engine...")
 analysis_engine = AnalysisEngine(MODEL_PATH)
+chat_assistant = ChatAssistant()
 print("✅ Analysis Engine Ready!")
 
 # In-memory storage for recent analyses (for chat context)
@@ -181,9 +183,10 @@ async def train_model():
 async def chat_with_ai(message: dict):
     """
     Chat interface for asking questions about clauses and risks
+    Uses intelligent NLP-based AI assistant
     """
     try:
-        user_message = message.get('message', '').lower()
+        user_message = message.get('message', '')
         analysis_id = message.get('analysis_id')
         
         # Get context if analysis_id provided
@@ -193,14 +196,19 @@ async def chat_with_ai(message: dict):
             context = {
                 'clauses': analysis['clauses'],
                 'risk_assessment': analysis['risk_assessment'],
-                'recommendations': analysis['recommendations']
+                'recommendations': analysis.get('recommendations', []),
+                'risk_level': analysis['risk_assessment']['overall_level'],
+                'overall_score': analysis['risk_assessment']['overall_score'],
+                'dangerous_clauses': analysis['risk_assessment'].get('dangerous_clauses', []),
+                'clause_count': analysis['risk_assessment']['clause_count'],
+                'risk_categories': analysis['risk_assessment'].get('risk_categories', {})
             }
         
-        # Generate response
-        response = _generate_chat_response(user_message, context)
+        # Generate intelligent response using ChatAssistant
+        response = chat_assistant.get_response(user_message, context)
         
         return {
-            'response': response,
+            'reply': response,
             'timestamp': datetime.utcnow().isoformat()
         }
         

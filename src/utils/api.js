@@ -151,7 +151,7 @@ export const askAI = async (prompt, analysisId = null) => {
     
     const data = await response.json();
     return {
-      reply: data.response
+      reply: data.reply || data.response
     };
   } catch (error) {
     console.error('Chat error:', error);
