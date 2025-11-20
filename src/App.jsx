@@ -1,7 +1,8 @@
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import Navbar from "./components/Navbar";
 
+import LoginPage from "./pages/LoginPage";
 import UploadPage from "./pages/UploadPage";
 import AnalysisPage from "./pages/AnalysisPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -9,16 +10,19 @@ import ChatAIPage from "./pages/ChatAIPage";
 import ClauseDetailsPage from "./pages/ClauseDetailsPage";
 
 export default function App() {
+  const location = useLocation();
+  const isLoginPage = location.pathname === "/login";
+
   return (
     <div className="min-h-screen flex">
+      {!isLoginPage && <Sidebar />}
 
-      <Sidebar />
+      <div className={`flex-1 ${!isLoginPage ? "ml-64" : ""}`}>
+        {!isLoginPage && <Navbar />}
 
-      <div className="flex-1 ml-64">
-        <Navbar />
-
-        <div className="p-8">
+        <div className={!isLoginPage ? "p-8" : ""}>
           <Routes>
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/" element={<UploadPage />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/analysis" element={<AnalysisPage />} />
