@@ -6,3 +6,63 @@ html, body, #root {
   height: 100%;
   width: 100%;
 }
+
+/* Print Styles for PDF Export */
+@media print {
+  @page {
+    size: A4;
+    margin: 1cm;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .glass-card {
+    background: white !important;
+    border: 1px solid #ddd !important;
+    box-shadow: none !important;
+    page-break-inside: avoid;
+    margin-bottom: 20px;
+  }
+  
+  /* Hide navigation and interactive elements */
+  nav, .sidebar, button:not(.print-keep) {
+    display: none !important;
+  }
+  
+  /* Make text readable */
+  * {
+    color: #000 !important;
+    background: transparent !important;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    color: #1a1a1a !important;
+    page-break-after: avoid;
+  }
+  
+  /* Keep important colored elements */
+  .bg-red-500, .text-red-400, [class*=\"red\"] {
+    color: #dc2626 !important;
+  }
+  
+  .bg-green-500, .text-green-400, [class*=\"green\"] {
+    color: #16a34a !important;
+  }
+  
+  .bg-yellow-500, .text-yellow-400, [class*=\"yellow\"] {
+    color: #ca8a04 !important;
+  }
+  
+  /* Ensure proper spacing */
+  .space-y-6 > * {
+    margin-bottom: 1.5rem;
+  }
+  
+  /* Page breaks */
+  .page-break {
+    page-break-before: always;
+  }
+}

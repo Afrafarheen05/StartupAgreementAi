@@ -45,21 +45,26 @@ class DocumentProcessor:
                 pdf_reader = PyPDF2.PdfReader(file)
                 pages = len(pdf_reader.pages)
                 
-                for page in pdf_reader.pages:
+                for page_num, page in enumerate(pdf_reader.pages):
                     page_text = page.extract_text()
                     if page_text:
-                        text += page_text + "\n\n"
+                        # Add page marker for better section detection
+                        text += f"\n--- Page {page_num + 1} ---\n{page_text}\n"
             
             # If text is too short, likely scanned PDF - use OCR
             if len(text.strip()) < 100:
                 text = self._ocr_pdf(pdf_path)
                 extraction_method = "ocr"
+            
+            # Split into sections
+            sections = self.split_into_sections(text)
                 
         except Exception as e:
             # Fallback to OCR if direct extraction fails
             try:
                 text = self._ocr_pdf(pdf_path)
                 extraction_method = "ocr_fallback"
+                sections = self.split_into_sections(text)
             except Exception as ocr_error:
                 return {
                     "success": False,
@@ -71,7 +76,8 @@ class DocumentProcessor:
             "text": text.strip(),
             "pages": pages,
             "extraction_method": extraction_method,
-            "file_type": "pdf"
+            "file_type": "pdf",
+            "sections": sections
         }
     
     def _ocr_pdf(self, pdf_path: str) -> str:
@@ -97,23 +103,29 @@ class DocumentProcessor:
             doc = Document(docx_path)
             text = ""
             
-            # Extract paragraphs
+            # Extract paragraphs with better formatting
             for para in doc.paragraphs:
-                text += para.text + "\n"
+                if para.text.strip():
+                    text += para.text + "\n\n"
             
             # Extract tables
             for table in doc.tables:
+                text += "\n[TABLE]\n"
                 for row in table.rows:
-                    for cell in row.cells:
-                        text += cell.text + "\t"
-                    text += "\n"
+                    row_text = "\t".join([cell.text for cell in row.cells])
+                    text += row_text + "\n"
+                text += "[/TABLE]\n\n"
+            
+            # Split into sections
+            sections = self.split_into_sections(text)
             
             return {
                 "success": True,
                 "text": text.strip(),
                 "pages": len(doc.paragraphs) // 20,  # Rough estimate
                 "extraction_method": "docx",
-                "file_type": "docx"
+                "file_type": "docx",
+                "sections": sections
             }
             
         except Exception as e:
@@ -136,14 +148,15 @@ class DocumentProcessor:
         return text.strip()
     
     def split_into_sections(self, text: str) -> list:
-        """Split document into logical sections"""
+        """Split document into logical sections with better detection"""
         sections = []
         
-        # Try different section patterns
+        # Try different section patterns (more comprehensive)
         patterns = [
-            r'(?:SECTION|Article|ARTICLE)\s+\d+[:\.\s]+([^\n]+)',
+            r'(?:SECTION|Section|Article|ARTICLE)\s+\d+[:\.\s]*([^\n]+)',
             r'(?:^|\n)(\d+\.\s+[A-Z][^\n]+)',
-            r'(?:^|\n)([A-Z][A-Z\s]{10,})\n'
+            r'(?:^|\n)([A-Z][A-Z\s&]{10,})(?:\n|:)',
+            r'(?:^|\n)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Clause|Agreement|Rights|Provision))'
         ]
         
         for pattern in patterns:

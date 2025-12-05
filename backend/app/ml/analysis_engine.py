@@ -88,14 +88,26 @@ class AnalysisEngine:
                 'analysis_timestamp': datetime.utcnow().isoformat(),
                 'document_info': {
                     'filename': os.path.basename(file_path),
-                    'page_count': doc_result.get('page_count'),
+                    'page_count': doc_result.get('pages', 0),
                     'word_count': len(text.split())
                 },
                 'clauses': extracted_clauses,
                 'risk_assessment': risk_assessment,
+                'riskAssessment': risk_assessment,  # Camel case for frontend compatibility
                 'future_predictions': predictions,
+                'futurePredictions': predictions,  # Camel case for frontend compatibility
                 'recommendations': recommendations,
-                'startup_type': startup_type
+                'startup_type': startup_type,
+                'summary': {
+                    'total': risk_assessment.get('clause_count', 0),
+                    'high': risk_assessment.get('risk_distribution', {}).get('High', 0),
+                    'medium': risk_assessment.get('risk_distribution', {}).get('Medium', 0),
+                    'low': risk_assessment.get('risk_distribution', {}).get('Low', 0)
+                },
+                'metadata': {
+                    'startupType': startup_type,
+                    'fundingStage': 'seed'
+                }
             }
             
             return result
@@ -126,16 +138,18 @@ class AnalysisEngine:
         
         # Calculate weighted risk score (0-100)
         total = len(clauses)
+        # INVERTED SCALE: Lower score = Higher risk (founder-friendly scoring)
+        # High risk clauses REDUCE the score, Low risk clauses INCREASE it
         risk_score = (
-            (risk_counts['High'] * 100) +
+            (risk_counts['Low'] * 100) +
             (risk_counts['Medium'] * 50) +
-            (risk_counts['Low'] * 10)
+            (risk_counts['High'] * 10)
         ) / total if total > 0 else 0
         
-        # Determine overall level
-        if risk_score >= 70:
+        # Determine overall level (inverted: low score = high risk)
+        if risk_score < 40:
             overall_level = 'High'
-        elif risk_score >= 40:
+        elif risk_score < 70:
             overall_level = 'Medium'
         else:
             overall_level = 'Low'

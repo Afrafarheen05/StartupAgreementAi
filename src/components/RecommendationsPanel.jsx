@@ -87,26 +87,74 @@ export default function RecommendationsPanel({ recommendations }) {
               {/* Expandable Content */}
               {isExpanded && (
                 <div className="p-4 bg-gray-900/30 border-t border-gray-700 space-y-4">
+                  {/* Show instance count and snippets if multiple */}
+                  {rec.instances && rec.instances.length > 1 && (
+                    <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                      <h4 className="text-sm font-semibold text-amber-400 mb-2">
+                        ⚠️ {rec.instances.length} instances of this clause found in the document
+                      </h4>
+                      <div className="space-y-2 mt-3">
+                        {rec.instances.map((inst, idx) => (
+                          <div key={idx} className="p-2 rounded bg-gray-800/50 border border-gray-700">
+                            <span className="text-xs text-gray-500">Instance #{idx + 1}:</span>
+                            <p className="text-xs text-gray-400 mt-1">{inst.snippet}...</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Detected Problematic Terms */}
+                  {rec.detected_terms && rec.detected_terms.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-sm font-semibold text-red-400 mb-2">🚨 Detected Problematic Terms:</h4>
+                      <div className="flex flex-wrap gap-2">
+                        {rec.detected_terms.map((term, idx) => (
+                          <span key={idx} className="px-2 py-1 rounded-full bg-red-500/20 text-red-300 text-xs border border-red-500/30">
+                            {term}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Specific Concerns */}
+                  {rec.specific_concerns && rec.specific_concerns.length > 0 && (
+                    <div className="mb-3">
+                      <h4 className="text-sm font-semibold text-orange-400 mb-2">⚠️ Specific Concerns:</h4>
+                      <ul className="space-y-1">
+                        {rec.specific_concerns.map((concern, idx) => (
+                          <li key={idx} className="text-sm text-gray-300 flex items-start gap-2">
+                            <span className="text-orange-400 mt-1">•</span>
+                            <span>{concern}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
                   {/* Recommendation */}
-                  <div>
-                    <h4 className="text-sm font-semibold text-green-400 mb-2 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
-                      RECOMMENDED CHANGE
-                    </h4>
-                    <p className="text-gray-300 text-sm leading-relaxed bg-green-500/5 p-3 rounded-lg border border-green-500/20">
-                      {rec.recommendation}
-                    </p>
-                  </div>
+                  {rec.recommendation && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-green-400 mb-2 flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                        RECOMMENDED CHANGE
+                      </h4>
+                      <p className="text-gray-300 text-sm leading-relaxed bg-green-500/5 p-3 rounded-lg border border-green-500/20">
+                        {rec.recommendation}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Negotiation Tips */}
-                  {rec.negotiationTips && rec.negotiationTips.length > 0 && (
+                  {(rec.negotiation_tips || rec.negotiationTips) && (rec.negotiation_tips || rec.negotiationTips).length > 0 && (
                     <div>
                       <h4 className="text-sm font-semibold text-blue-400 mb-3 flex items-center gap-2">
                         <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
                         NEGOTIATION STRATEGY
                       </h4>
                       <div className="space-y-2">
-                        {rec.negotiationTips.map((tip, tipIndex) => (
+                        {(rec.negotiation_tips || rec.negotiationTips).map((tip, tipIndex) => (
                           <div 
                             key={tipIndex}
                             className="flex items-start gap-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 hover:border-blue-500/40 transition-all group"
@@ -137,14 +185,14 @@ export default function RecommendationsPanel({ recommendations }) {
                   )}
 
                   {/* Expected Impact */}
-                  {rec.expectedImpact && (
+                  {(rec.expected_impact || rec.expectedImpact) && (
                     <div className="p-4 rounded-lg bg-gradient-to-r from-purple-500/10 to-pink-500/10 border border-purple-500/30">
                       <h4 className="text-sm font-semibold text-purple-400 mb-2 flex items-center gap-2">
                         <span className="text-lg">📈</span>
                         EXPECTED IMPACT
                       </h4>
                       <p className="text-gray-300 text-sm leading-relaxed">
-                        {rec.expectedImpact}
+                        {rec.expected_impact || rec.expectedImpact}
                       </p>
                     </div>
                   )}

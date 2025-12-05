@@ -13,6 +13,8 @@ export default function FileUpload({ onUploaded, metadata }) {
     setLoading(false);
 
     if (res.success) {
+      // Store filename for later use
+      sessionStorage.setItem("currentFilename", file.name);
       onUploaded(res.jobId);
     }
   };

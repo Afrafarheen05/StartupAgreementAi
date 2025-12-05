@@ -2,13 +2,32 @@
 Recommendation Engine
 Generates actionable recommendations for risky clauses
 """
+import re
+import os
 from typing import Dict, List
+import google.generativeai as genai
 
 
 class RecommendationEngine:
     """Generate actionable recommendations for clause negotiation"""
     
     def __init__(self):
+        """Initialize recommendation engine with Gemini AI"""
+        # Initialize Gemini for intelligent clause analysis
+        self.model = None
+        api_key = os.getenv("GEMINI_API_KEY")
+        if api_key and api_key.strip() != "" and api_key != "your_gemini_api_key_here":
+            try:
+                genai.configure(api_key=api_key)
+                self.model = genai.GenerativeModel('gemini-2.0-flash-exp')
+                print("✅ Recommendation Engine: Gemini AI enabled for clause analysis")
+            except Exception as e:
+                print(f"⚠️  Gemini initialization failed in RecommendationEngine: {e}")
+                self.model = None
+        else:
+            print("⚠️  Recommendation Engine: Running without Gemini (keyword-based analysis only)")
+        
+        # Template database for fallback
         # Pre-defined recommendation templates
         self.recommendations_db = {
             "Liquidation Preference": {
@@ -206,24 +225,38 @@ class RecommendationEngine:
         high_risk = [c for c in clauses if c.get('risk_level') == 'High']
         medium_risk = [c for c in clauses if c.get('risk_level') == 'Medium']
         
-        # Generate recommendations for high-risk clauses (Critical priority)
-        for clause in high_risk:
-            rec = self._create_recommendation(clause, 'Critical')
+        # Group clauses by type to avoid duplicates
+        clause_groups = {}
+        for clause in high_risk + medium_risk:
+            clause_type = clause.get('type', 'General Clause')
+            if clause_type not in clause_groups:
+                clause_groups[clause_type] = []
+            clause_groups[clause_type].append(clause)
+        
+        # Generate one recommendation per clause type with all instances
+        for clause_type, clause_list in clause_groups.items():
+            # Use the highest risk clause as primary
+            primary_clause = clause_list[0]
+            priority = 'Critical' if primary_clause.get('risk_level') == 'High' else 'High'
+            
+            rec = self._create_recommendation(primary_clause, priority, clause_list)
             if rec:
                 recommendations.append(rec)
         
-        # Generate recommendations for medium-risk clauses (High/Medium priority)
-        for clause in medium_risk[:3]:  # Limit to top 3 medium risks
-            rec = self._create_recommendation(clause, 'High')
-            if rec:
-                recommendations.append(rec)
+        # Sort by priority
+        priority_order = {'Critical': 0, 'High': 1, 'Medium': 2, 'Low': 3}
+        recommendations.sort(key=lambda x: priority_order.get(x['priority'], 4))
         
         return recommendations
     
-    def _create_recommendation(self, clause: Dict, priority: str) -> Dict:
-        """Create detailed recommendation for a specific clause"""
+    def _create_recommendation(self, clause: Dict, priority: str, all_instances: List[Dict] = None) -> Dict:
+        """Create detailed recommendation for a specific clause with actual content analysis"""
         clause_type = clause.get('type', 'General Clause')
         risk_level = clause.get('risk_level', 'Medium')
+        clause_text = clause.get('text', '')
+        
+        # Analyze actual clause content for specific terms
+        specific_issues = self._analyze_clause_content(clause_text, clause_type)
         
         # Look up template
         template = self.recommendations_db.get(clause_type, {}).get(risk_level)
@@ -232,13 +265,27 @@ class RecommendationEngine:
             # Generate generic recommendation
             template = self._generate_generic_recommendation(clause_type, risk_level)
         
+        # Extract key problematic terms from actual text
+        key_terms = self._extract_problematic_terms(clause_text, clause_type)
+        
+        # Count instances
+        instance_count = len(all_instances) if all_instances else 1
+        instance_note = f" ({instance_count} instances found)" if instance_count > 1 else ""
+        
         return {
+            'id': clause.get('id'),
             'priority': priority,
-            'clause': clause_type,
-            'issue': template.get('issue', 'Requires attention'),
-            'recommendation': template.get('recommendation', 'Negotiate more favorable terms'),
+            'clause': clause_type + instance_note,
+            'clause_snippet': clause_text[:300] if clause_text else 'No text available',
+            'full_text': clause_text,
+            'issue': specific_issues.get('issue', template.get('issue', 'Requires attention')),
+            'recommendation': specific_issues.get('recommendation', template.get('recommendation', 'Negotiate more favorable terms')),
             'negotiation_tips': template.get('tips', []),
-            'expected_impact': template.get('impact', 'Improves founder protection')
+            'expected_impact': template.get('impact', 'Improves founder protection'),
+            'risk_level': risk_level,
+            'specific_concerns': specific_issues.get('concerns', []),
+            'detected_terms': key_terms,
+            'instances': [{'id': c.get('id'), 'snippet': c.get('text', '')[:150]} for c in (all_instances or [clause])]
         }
     
     def _generate_generic_recommendation(self, clause_type: str, risk_level: str) -> Dict:
@@ -266,3 +313,124 @@ class RecommendationEngine:
                 ],
                 'impact': "Marginal improvement in terms"
             }
+    
+    def _analyze_clause_content(self, text: str, clause_type: str) -> Dict:
+        """Analyze actual clause text using AI to identify SPECIFIC issues"""
+        if not text or len(text) < 20:
+            return {'issue': f"This {clause_type} requires review", 'recommendation': "Consult legal advisor", 'concerns': []}
+        
+        # Try AI-powered analysis first
+        if self.model:
+            try:
+                prompt = f"""You are an expert startup attorney analyzing a specific clause from a term sheet.
+
+CLAUSE TYPE: {clause_type}
+ACTUAL CLAUSE TEXT: "{text}"
+
+Analyze this SPECIFIC clause text and provide:
+1. ISSUE: What makes THIS specific clause risky? Quote specific phrases from the text.
+2. RECOMMENDATION: Specific negotiation advice for THIS clause (not generic).
+3. CONCERNS: List 2-3 specific problems with THIS exact wording.
+
+Be SPECIFIC - reference the actual terms, numbers, and phrases in the clause.
+Format as JSON with keys: issue, recommendation, concerns (array)
+
+Example format:
+{{
+  "issue": "This clause states 'Investors shall have the right to appoint 3 of 5 board members' giving investors 60% control",
+  "recommendation": "Negotiate to 2-2-1 board structure: 2 founders, 2 investors, 1 independent director with founder veto on CEO removal",
+  "concerns": [
+    "Investors can fire founder-CEO with simple majority vote",
+    "Founders cannot block strategic decisions like company sale or IP licensing"
+  ]
+}}"""
+
+                response = self.model.generate_content(prompt)
+                result_text = response.text.strip()
+                
+                # Extract JSON from response
+                import json
+                if '```json' in result_text:
+                    json_str = result_text.split('```json')[1].split('```')[0].strip()
+                elif '```' in result_text:
+                    json_str = result_text.split('```')[1].split('```')[0].strip()
+                else:
+                    json_str = result_text
+                
+                analysis = json.loads(json_str)
+                return {
+                    'issue': analysis.get('issue', ''),
+                    'recommendation': analysis.get('recommendation', ''),
+                    'concerns': analysis.get('concerns', [])
+                }
+            except Exception as e:
+                print(f"⚠️  AI analysis failed for {clause_type}: {e}")
+                # Fall through to keyword-based analysis
+        
+        # Fallback: Keyword-based analysis
+        text_lower = text.lower() if text else ""
+        issues = {'issue': '', 'recommendation': '', 'concerns': []}
+        
+        if clause_type == "Board Control":
+            if 'majority' in text_lower and 'investor' in text_lower:
+                issues['issue'] = "Investors have majority board control as stated in this clause"
+                issues['recommendation'] = "Negotiate for balanced board: equal founder and investor seats plus independent directors"
+                issues['concerns'].append("Founders lose voting power on key decisions")
+                issues['concerns'].append("Risk of forced CEO removal")
+            elif 'appoint' in text_lower or 'designate' in text_lower:
+                issues['issue'] = "Investors can appoint directors without founder approval"
+                issues['recommendation'] = "Add requirement for founder consent on board appointments"
+                
+        elif clause_type == "Liquidation Preference":
+            if '3x' in text_lower or '2x' in text_lower:
+                multiplier = '3x' if '3x' in text_lower else '2x'
+                issues['issue'] = f"Clause specifies {multiplier} liquidation preference - extremely unfavorable"
+                issues['recommendation'] = f"Negotiate down to 1x non-participating. {multiplier} will wipe out founder returns in most exits"
+                issues['concerns'].append(f"Investors get {multiplier} their investment before founders see anything")
+            if 'participating' in text_lower:
+                issues['concerns'].append("Participating preference means investors get paid twice")
+                
+        elif clause_type == "Anti-Dilution":
+            if 'full ratchet' in text_lower:
+                issues['issue'] = "Full ratchet anti-dilution detected - will cause massive founder dilution"
+                issues['recommendation'] = "Must change to broad-based weighted average. Full ratchet is unacceptable"
+                issues['concerns'].append("Any down-round will drastically dilute founders")
+                issues['concerns'].append("Makes future fundraising nearly impossible")
+                
+        elif clause_type == "IP Assignment":
+            if 'all' in text_lower and ('intellectual property' in text_lower or 'inventions' in text_lower):
+                issues['issue'] = "Overly broad IP assignment covering all intellectual property"
+                issues['recommendation'] = "Add carve-outs for: (1) prior inventions, (2) side projects, (3) unrelated work"
+                issues['concerns'].append("Limits ability to work on other projects")
+                issues['concerns'].append("Prior work may be claimed by company")
+                
+        return issues if issues['issue'] else {'issue': f"This {clause_type} requires review", 'recommendation': "Consult legal advisor", 'concerns': []}
+    
+    def _extract_problematic_terms(self, text: str, clause_type: str) -> List[str]:
+        """Extract specific problematic terms from clause text"""
+        terms = []
+        
+        if not text:
+            return terms
+            
+        text_lower = text.lower()
+        
+        # Extract multipliers (2x, 3x, etc.)
+        multipliers = re.findall(r'\d+x', text_lower)
+        terms.extend(multipliers)
+        
+        # Extract percentages
+        percentages = re.findall(r'\d+%', text)
+        terms.extend(percentages[:3])  # Limit to first 3
+        
+        # Extract key phrases
+        problematic_phrases = [
+            'full ratchet', 'participating', 'majority', 'unilateral',
+            'sole discretion', 'at any time', 'without notice', 'all intellectual property'
+        ]
+        
+        for phrase in problematic_phrases:
+            if phrase in text_lower:
+                terms.append(phrase)
+                
+        return list(set(terms))[:5]  # Return up to 5 unique terms

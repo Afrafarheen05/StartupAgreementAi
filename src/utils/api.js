@@ -1,6 +1,21 @@
 // Real API - Connects to FastAPI backend
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+// Helper function for API calls
+const apiCall = async (endpoint, options = {}) => {
+  try {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'API call failed');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('API Error:', error);
+    throw error;
+  }
+};
+
 export const uploadAgreement = async (file, metadata) => {
   try {
     const formData = new FormData();
@@ -21,6 +36,7 @@ export const uploadAgreement = async (file, metadata) => {
     return { 
       success: true, 
       jobId: result.analysis_id.toString(),
+      filename: file.name,
       metadata,
       analysisData: result
     };
@@ -40,16 +56,37 @@ export const analyzeAgreement = async (jobId, startupType, fundingStage) => {
     
     const data = await response.json();
     
-    // Transform backend data to match frontend format
-    const clauses = data.clauses.map((clause, index) => ({
-      id: index + 1,
-      type: clause.type,
-      risk: clause.risk_level,
-      text: clause.text,
-      explanation: clause.explanation,
-      futureImpact: clause.risk_factors?.join(' ') || 'Potential impact on future operations',
-      recommendation: clause.recommendation || 'Review with legal advisor'
-    }));
+    // First, process recommendations to map them by clause type for easy lookup
+    const recommendationsByClause = {};
+    (data.recommendations || []).forEach(rec => {
+      if (!recommendationsByClause[rec.clause]) {
+        recommendationsByClause[rec.clause] = [];
+      }
+      recommendationsByClause[rec.clause].push(rec);
+    });
+    
+    // Transform backend data to match frontend format WITH real recommendations attached
+    const clauses = data.clauses.map((clause, index) => {
+      // Find matching recommendations for this clause type
+      const matchingRecs = recommendationsByClause[clause.type] || [];
+      const primaryRec = matchingRecs[0]; // Get first recommendation for this clause type
+      
+      return {
+        id: index + 1,
+        type: clause.type,
+        risk: clause.risk_level,
+        risk_level: clause.risk_level,
+        text: clause.text,
+        explanation: clause.explanation,
+        key_terms: clause.key_terms || [],
+        detected_terms: primaryRec?.detected_terms || [],
+        specific_concerns: primaryRec?.specific_concerns || [],
+        futureImpact: clause.risk_factors?.join(' ') || primaryRec?.issue || 'Potential impact on future operations',
+        recommendation: primaryRec?.recommendation || 'Review with legal advisor',
+        negotiation_tips: primaryRec?.negotiation_tips || [],
+        expected_impact: primaryRec?.expected_impact || ''
+      };
+    });
     
     const summary = {
       total: data.risk_assessment.clause_count,
@@ -63,18 +100,9 @@ export const analyzeAgreement = async (jobId, startupType, fundingStage) => {
       )
     };
     
-    // Transform future predictions
+    // Transform future predictions - Keep timeline structure intact, NO flatMap
     const futurePredictions = {
-      timeline: (data.future_predictions?.timeline || []).flatMap(period => 
-        (period.risks || []).map(risk => ({
-          period: period.period,
-          probability: risk.probability,
-          risk: risk.impact,
-          description: risk.description,
-          impact: risk.impact,
-          title: risk.title
-        }))
-      ),
+      timeline: data.future_predictions?.timeline || [],
       overallOutlook: data.future_predictions?.overall_outlook || {
         probability: 50,
         sentiment: 'Moderate',
@@ -83,47 +111,49 @@ export const analyzeAgreement = async (jobId, startupType, fundingStage) => {
       overall: data.future_predictions?.overall_outlook?.summary || data.risk_assessment.summary
     };
     
-    // Transform recommendations
-    const recommendations = data.recommendations.map(rec => ({
+    // Transform recommendations - keep all fields for RecommendationsPanel
+    const recommendations = (data.recommendations || []).map(rec => ({
       priority: rec.priority,
       clause: rec.clause,
       issue: rec.issue,
-      action: rec.recommendation,
-      tips: rec.negotiation_tips,
-      impact: rec.expected_impact
+      recommendation: rec.recommendation, // Keep original field name
+      action: rec.recommendation, // Also map to action for compatibility
+      negotiation_tips: rec.negotiation_tips || [],
+      negotiationTips: rec.negotiation_tips || [], // camelCase for compatibility
+      expected_impact: rec.expected_impact || '',
+      impact: rec.expected_impact || '',
+      detected_terms: rec.detected_terms || [],
+      specific_concerns: rec.specific_concerns || [],
+      instances: rec.instances || [],
+      clause_snippet: rec.clause_snippet || '',
+      full_text: rec.full_text || ''
     }));
     
-    // Build risk assessment
+    // Build risk assessment - use backend data directly (already calculated correctly)
     const riskAssessment = {
-      overallScore: 100 - data.risk_assessment.overall_score, // Invert for frontend
-      rating: data.risk_assessment.overall_level,
-      riskCategories: data.risk_assessment.risk_categories || {},
-      breakdown: {
-        controlRisk: data.risk_assessment.risk_distribution.High * 20,
-        economicRisk: data.risk_assessment.risk_distribution.High * 15,
-        operationalRisk: data.risk_assessment.risk_distribution.Medium * 10,
-        exitRisk: data.risk_assessment.risk_distribution.High * 18,
-        dilutionRisk: data.risk_assessment.risk_distribution.Medium * 12,
-      },
-      comparison: {
-        vsMarketAverage: Math.round((100 - data.risk_assessment.overall_score) - 60),
-        vsStartupFriendly: Math.round((100 - data.risk_assessment.overall_score) - 75),
-        vsInvestorFriendly: Math.round((100 - data.risk_assessment.overall_score) - 45)
-      },
-      verdict: data.risk_assessment.summary
+      overall_score: data.risk_assessment.overall_score,
+      overall_level: data.risk_assessment.overall_level,
+      risk_distribution: data.risk_assessment.risk_distribution,
+      summary: data.risk_assessment.summary,
+      dangerous_clauses: data.risk_assessment.dangerous_clauses || [],
+      clause_count: data.risk_assessment.clause_count
     };
+    
+    // Get filename from sessionStorage or backend
+    const filename = sessionStorage.getItem('currentFilename') || data.filename || 'Agreement';
     
     return {
       clauses,
       summary,
       futurePredictions,
       recommendations,
-      riskAssessment,
+      riskAssessment,  // Main risk data for OverallRiskScore component
       overallRiskScore: data.risk_assessment.overall_score,
       riskLevel: data.risk_assessment.overall_level,
       dangerousClauses: data.risk_assessment.dangerous_clauses,
       sectorInsights: generateSectorInsights(startupType, fundingStage),
-      metadata: { startupType, fundingStage }
+      metadata: { startupType, fundingStage },
+      filename: filename
     };
     
   } catch (error) {
@@ -279,3 +309,114 @@ function generateSectorInsights(startupType, fundingStage) {
 
   return insights[startupType?.toLowerCase()] || insights.default;
 }
+
+// Extended API object with new features
+export const api = {
+  // Original methods
+  uploadAgreement,
+  analyzeAgreement,
+  askAI,
+  trainModel,
+  getClauseDetails,
+  getAnalysesList,
+  
+  // NEW: Comparison Engine
+  compareDocuments: async (analysisIds, comparisonName) => {
+    return apiCall('/api/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analysis_ids: analysisIds, comparison_name: comparisonName })
+    });
+  },
+  
+  // NEW: Negotiation Simulator
+  startNegotiation: async (clause, investorProfile, fundingStage, startupType) => {
+    return apiCall('/api/negotiation/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clause, investor_profile: investorProfile, funding_stage: fundingStage, startup_type: startupType })
+    });
+  },
+  
+  makeCounterOffer: async (sessionId, proposal, reasoning) => {
+    return apiCall(`/api/negotiation/${sessionId}/counter`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposal, reasoning })
+    });
+  },
+  
+  getNegotiationSession: async (sessionId) => {
+    return apiCall(`/api/negotiation/${sessionId}`);
+  },
+  
+  // NEW: Compliance Checker
+  checkCompliance: async (analysisId, jurisdictions) => {
+    return apiCall('/api/compliance/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analysis_id: analysisId, jurisdictions })
+    });
+  },
+  
+  getJurisdictionRequirements: async (jurisdiction) => {
+    return apiCall(`/api/compliance/requirements/${jurisdiction}`);
+  },
+  
+  // NEW: Version Control
+  createVersion: async (documentId, analysisId, createdBy, changeSummary) => {
+    return apiCall('/api/version/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_id: documentId, analysis_id: analysisId, created_by: createdBy, change_summary: changeSummary })
+    });
+  },
+  
+  getVersionHistory: async (documentId) => {
+    return apiCall(`/api/version/history/${documentId}`);
+  },
+  
+  compareVersions: async (documentId, versionA, versionB) => {
+    return apiCall('/api/version/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ document_id: documentId, version_a: versionA, version_b: versionB })
+    });
+  },
+  
+  // NEW: Benchmark Engine
+  benchmarkDocument: async (analysisId, startupType, fundingStage) => {
+    return apiCall('/api/benchmark/document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analysis_id: analysisId, startup_type: startupType, funding_stage: fundingStage })
+    });
+  },
+  
+  getIndustryTrends: async (startupType, fundingStage) => {
+    return apiCall(`/api/benchmark/trends?startup_type=${startupType}&funding_stage=${fundingStage}`);
+  },
+  
+  // NEW: Contract Generator
+  generateAlternativeClause: async (clause, startupType, fundingStage) => {
+    return apiCall('/api/generate/alternative', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clause, startup_type: startupType, funding_stage: fundingStage })
+    });
+  },
+  
+  generateCustomAgreement: async (templateName, parameters, customizations) => {
+    return apiCall('/api/generate/document', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_name: templateName, parameters, customizations })
+    });
+  },
+  
+  listTemplates: async () => {
+    return apiCall('/api/generate/templates');
+  }
+};
+
+export default api;

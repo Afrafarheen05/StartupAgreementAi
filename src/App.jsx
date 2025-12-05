@@ -8,6 +8,8 @@ import AnalysisPage from "./pages/AnalysisPage";
 import DashboardPage from "./pages/DashboardPage";
 import ChatAIPage from "./pages/ChatAIPage";
 import ClauseDetailsPage from "./pages/ClauseDetailsPage";
+import ComparisonPage from './pages/ComparisonPage';
+import NegotiationPage from './pages/NegotiationPage';
 
 export default function App() {
   const location = useLocation();
@@ -30,6 +32,8 @@ export default function App() {
             <Route path="/dashboard" element={isAuthenticated ? <DashboardPage /> : <LoginPage />} />
             <Route path="/chat" element={isAuthenticated ? <ChatAIPage /> : <LoginPage />} />
             <Route path="/clause/:id" element={isAuthenticated ? <ClauseDetailsPage /> : <LoginPage />} />
+            <Route path="/comparison" element={isAuthenticated ? <ComparisonPage /> : <LoginPage />} />
+            <Route path="/negotiation" element={isAuthenticated ? <NegotiationPage /> : <LoginPage />} />
           </Routes>
         </div>
       </div>

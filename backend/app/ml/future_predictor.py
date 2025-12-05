@@ -72,49 +72,48 @@ class FuturePredictor:
     def predict_future_risks(self, clauses: List[Dict], risk_assessment: Dict,
                             startup_type: str, funding_stage: str) -> Dict:
         """
-        Generate timeline-based future risk predictions
+        Generate timeline-based future risk predictions (NO DUPLICATES)
         """
-        # Collect high-risk clauses
-        high_risk_clauses = [c for c in clauses if c.get('risk_level') == 'High']
-        medium_risk_clauses = [c for c in clauses if c.get('risk_level') == 'Medium']
+        # Collect UNIQUE high-risk clauses by type only
+        clause_types_seen = set()
+        high_risk_unique = []
+        medium_risk_unique = []
         
-        # Build timeline predictions
-        timeline = []
+        for c in clauses:
+            ctype = c.get('type', 'General')
+            if ctype not in clause_types_seen:
+                if c.get('risk_level') == 'High':
+                    high_risk_unique.append(c)
+                    clause_types_seen.add(ctype)
+                elif c.get('risk_level') == 'Medium' and len(medium_risk_unique) < 3:
+                    medium_risk_unique.append(c)
+                    clause_types_seen.add(ctype)
         
-        # 6-12 months predictions
-        short_term_risks = self._predict_short_term(high_risk_clauses, startup_type, funding_stage)
-        if short_term_risks:
-            timeline.append({
-                'period': '6-12 months',
-                'risks': short_term_risks
-            })
+        # Use dict to guarantee no duplicate periods
+        timeline_dict = {}
         
-        # 1-2 years predictions
-        mid_term_risks = self._predict_mid_term(high_risk_clauses, medium_risk_clauses, 
-                                                startup_type, funding_stage)
-        if mid_term_risks:
-            timeline.append({
-                'period': '1-2 years',
-                'risks': mid_term_risks
-            })
+        # 6-12 months
+        short_term = self._predict_short_term(high_risk_unique, startup_type, funding_stage)
+        if short_term:
+            timeline_dict['6-12 months'] = {'period': '6-12 months', 'risks': short_term}
         
-        # 2-3 years predictions
-        long_term_risks = self._predict_long_term(high_risk_clauses, risk_assessment,
-                                                  startup_type, funding_stage)
-        if long_term_risks:
-            timeline.append({
-                'period': '2-3 years',
-                'risks': long_term_risks
-            })
+        # 1-2 years
+        mid_term = self._predict_mid_term(high_risk_unique, medium_risk_unique, startup_type, funding_stage)
+        if mid_term:
+            timeline_dict['1-2 years'] = {'period': '1-2 years', 'risks': mid_term}
         
-        # 3+ years predictions
-        very_long_term_risks = self._predict_very_long_term(high_risk_clauses, risk_assessment,
-                                                            startup_type, funding_stage)
-        if very_long_term_risks:
-            timeline.append({
-                'period': '3+ years',
-                'risks': very_long_term_risks
-            })
+        # 2-3 years
+        long_term = self._predict_long_term(high_risk_unique, risk_assessment, startup_type, funding_stage)
+        if long_term:
+            timeline_dict['2-3 years'] = {'period': '2-3 years', 'risks': long_term}
+        
+        # 3+ years
+        very_long = self._predict_very_long_term(high_risk_unique, risk_assessment, startup_type, funding_stage)
+        if very_long:
+            timeline_dict['3+ years'] = {'period': '3+ years', 'risks': very_long}
+        
+        # Convert to ordered list
+        timeline = [timeline_dict[k] for k in ['6-12 months', '1-2 years', '2-3 years', '3+ years'] if k in timeline_dict]
         
         # Calculate overall outlook
         all_probabilities = []
@@ -123,14 +122,14 @@ class FuturePredictor:
                 all_probabilities.append(risk['probability'])
         
         overall_probability = int(np.mean(all_probabilities)) if all_probabilities else 50
-        sentiment = self._determine_sentiment(overall_probability, len(high_risk_clauses))
+        sentiment = self._determine_sentiment(overall_probability, len(high_risk_unique))
         
         return {
             'timeline': timeline,
             'overall_outlook': {
                 'probability': overall_probability,
                 'sentiment': sentiment,
-                'summary': self._generate_summary(overall_probability, len(high_risk_clauses),
+                'summary': self._generate_summary(overall_probability, len(high_risk_unique),
                                                  startup_type, funding_stage)
             }
         }

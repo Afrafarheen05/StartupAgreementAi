@@ -178,12 +178,12 @@ class ClauseExtractor:
             clause = {
                 'id': len(clauses) + 1,
                 'type': clause_type,
-                'text': section_text[:500],  # First 500 chars
+                'text': section_text,  # Show full text instead of truncating
                 'full_text': section_text,
                 'position': section.get('position', 0),
                 'entities': entities,
                 'key_terms': key_terms,
-                'title': section.get('title', '')
+                'title': section.get('title', clause_type)
             }
             
             clauses.append(clause)
@@ -213,26 +213,47 @@ class ClauseExtractor:
         return "General Clause"
     
     def _extract_entities(self, text: str) -> List[Dict]:
-        """Extract named entities using spaCy"""
-        if not self.nlp:
-            return []
+        """Extract named entities using spaCy and regex patterns"""
+        entities = []
         
-        try:
-            doc = self.nlp(text[:1000])  # Limit text length for performance
-            entities = []
-            
-            for ent in doc.ents:
-                if ent.label_ in ['ORG', 'PERSON', 'MONEY', 'PERCENT', 'DATE']:
-                    entities.append({
-                        'text': ent.text,
-                        'label': ent.label_,
-                        'start': ent.start_char,
-                        'end': ent.end_char
-                    })
-            
-            return entities
-        except:
-            return []
+        # Use spaCy if available
+        if self.nlp:
+            try:
+                doc = self.nlp(text[:2000])  # Increase limit for better entity extraction
+                
+                for ent in doc.ents:
+                    if ent.label_ in ['ORG', 'PERSON', 'MONEY', 'PERCENT', 'DATE', 'CARDINAL']:
+                        entities.append({
+                            'text': ent.text,
+                            'label': ent.label_,
+                            'start': ent.start_char,
+                            'end': ent.end_char
+                        })
+            except:
+                pass
+        
+        # Add regex-based extraction for common patterns
+        # Names in brackets like [Investor Name], [Company Name]
+        bracket_names = re.findall(r'\[([^\]]+(?:Name|Title))\]', text, re.IGNORECASE)
+        for name in bracket_names:
+            entities.append({'text': name, 'label': 'PLACEHOLDER', 'start': 0, 'end': 0})
+        
+        # Dates
+        dates = re.findall(r'\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4})\b', text, re.IGNORECASE)
+        for date in dates[:3]:  # Limit to first 3
+            entities.append({'text': date, 'label': 'DATE', 'start': 0, 'end': 0})
+        
+        # Percentages and monetary values
+        percentages = re.findall(r'\b\d+(?:\.\d+)?%', text)
+        for pct in percentages[:5]:
+            entities.append({'text': pct, 'label': 'PERCENT', 'start': 0, 'end': 0})
+        
+        # Dollar amounts
+        money = re.findall(r'\$[\d,]+(?:\.\d{2})?(?:\s*(?:million|billion|M|B))?', text, re.IGNORECASE)
+        for amt in money[:5]:
+            entities.append({'text': amt, 'label': 'MONEY', 'start': 0, 'end': 0})
+        
+        return entities
     
     def _extract_key_terms(self, text: str, clause_type: str) -> List[str]:
         """Extract key terms relevant to the clause type"""
